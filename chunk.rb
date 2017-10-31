@@ -3,34 +3,29 @@
 module Phraugr
 
   #
-  # Randomly split a file, line by line, into two files.
+  # Randomly split a file, line by line, into multiple files.
   #
-  class Split
+  class Chunk
 
     class << self
 
       # @param i_filename [String] the name of the input file
-      # @param o1_filename [String] the name of the first output file
-      # @param o2_filename [String] the name of the second output file
+      # @param num_chunks [Integer] the number of output files
       # @param options [Hash] the command line options
-      def perform(i_filename, o1_filename, o2_filename, options = {})
-        s = new(i_filename, o1_filename, o2_filename, options)
+      def perform(i_filename, num_chunks, options = {})
+        s = new(i_filename, num_chunks, options)
         s.perform
       end
 
     end
 
     # @param i_filename [String] the name of the input file
-    # @param o1_filename [String] the name of the first output file
-    # @param o2_filename [String] the name of the second output file
+    # @param num_chunks [Integer] the number of output files
     # @param options [Hash] the command line options
-    def initialize(i_filename, o1_filename, o2_filename, options = {})
+    def initialize(i_filename, num_chunks, options = {})
       @i_filename = i_filename
-      @o1_filename = o1_filename
-      @o2_filename = o2_filename
+      @num_chunks = num_chunks.to_i
       @options = options
-
-      @probability = @options[:probability] || 0.9
 
       @seed = @options[:random_seed]
       if @seed.nil? then @random = Random.new
@@ -46,8 +41,15 @@ module Phraugr
     end
 
     def perform
-      o1 = File.open(@o1_filename, 'wb')
-      o2 = File.open(@o2_filename, 'wb')
+      basename = File.basename(@i_filename)
+      ext = File.extname(@i_filename) # ".csv"
+      o_file_array = []
+      o_file_basename = basename[0..(-1 * (ext.size + 1))]
+
+      @num_chunks.times do |n|
+        o_filename = "#{o_file_basename}_%03d#{ext}" % (n + 1)
+        o_file_array.push( File.open(o_filename, 'wb') )
+      end
 
       counter = 0
       File.open(@i_filename, 'r').each_line do |line|
@@ -61,11 +63,11 @@ module Phraugr
             o1 << line
             o2 << line
           else
-            @random.rand > @probability ? o1 << line : o2 << line
+            o_file_array[@random.rand(@num_chunks)] << line
           end
 
         else
-          @random.rand > @probability ? o1 << line : o2 << line
+          o_file_array[@random.rand(@num_chunks)] << line
         end
 
         counter += 1
@@ -83,17 +85,15 @@ if (__FILE__ == $0) # If called from the command line
   options = {}
 
   opt_parser = OptionParser.new do |opt|
-    opt.banner = "usage: split.rb [-h] [-p PROBABILITY] [-r RANDOM_SEED] [-s] [-c] input_file output_file1 output_file2"
+    opt.banner = "usage: chunk.rb [-h] [-r RANDOM_SEED] [-s] [-c] input_file num_chunks"
 
     opt.on("-h","--help") do
       puts opt_parser
       exit()
     end
 
-    opt.on("-p","--probability PROBABILITY","probability of writing to the first file (default 0.9)") do |probability|
-      options[:probability] = probability
-    end
-
+    # Note in the Python version, -s is for SEED, unlike in 'split.py'
+    # I changed it because it's nice to be consistent.
     opt.on("-r","--random_seed RANDOM_SEED","random seed") do |random_seed|
       options[:random_seed] = random_seed
     end
@@ -106,7 +106,7 @@ if (__FILE__ == $0) # If called from the command line
       options[:skip_headers] = true
     end
 
-    opt.on("-c","--copy_headers","copy the header line to both output files") do
+    opt.on("-c","--copy_headers","copy the header line to all output files") do
       options[:copy_headers] = true
     end
 
@@ -114,9 +114,9 @@ if (__FILE__ == $0) # If called from the command line
 
   opt_parser.parse!
 
-  if ARGV.size < 3
+  if ARGV.size < 2
     raise "Not enough arguments"
   end
 
-  Phraugr::Split.perform(ARGV[0], ARGV[1], ARGV[2], options)
+  Phraugr::Chunk.perform(ARGV[0], ARGV[1], options)
 end
